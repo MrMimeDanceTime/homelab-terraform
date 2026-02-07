@@ -1,0 +1,106 @@
+# ============================================================================
+# Infisical Configuration
+# ============================================================================
+# NOTE: infisical_client_id and infisical_client_secret should NOT be set here
+# Pass them via environment variables:
+#   TF_VAR_infisical_client_id="your-client-id"
+#   TF_VAR_infisical_client_secret="your-client-secret"
+
+# Infisical workspace ID - get from Infisical dashboard
+infisical_workspace_id = "your-workspace-id-here"
+
+# Infisical environment (prod, dev, staging, etc.)
+infisical_env = "prod"
+
+# NOTE: Secrets are fetched from:
+#   - /HIDDEN folder: root_password, ci_password
+#   - /VISIBLE folder: ssh_key_pub
+
+# ============================================================================
+# Proxmox Configuration (Optional overrides)
+# ============================================================================
+# Uncomment to override defaults from variables.tf
+
+# proxmox_api_url = "https://192.0.2.10:8006/api2/json"
+# proxmox_user = "root@pam"
+# proxmox_tls_insecure = true
+
+# ============================================================================
+# General Purpose VMs
+# ============================================================================
+vms = {
+  "vm1" = {
+    home_name     = "zeus"
+    vm_id         = 200
+    cpu_cores     = 2
+    memory        = 4096
+    balloon       = 2048
+    disk_size     = 32
+    template_name = "alma-template-zeus"
+  }
+  "minecraft-server" = {
+    home_name     = "zeus"
+    vm_id         = 300
+    cpu_cores     = 12
+    memory        = 16384
+    balloon       = 2048
+    disk_size     = 32
+    template_name = "alma-template-zeus"
+  }
+}
+
+# ============================================================================
+# Jellyfin Media Server VMs (with GPU passthrough)
+# ============================================================================
+jellyfin_vms = {
+  "mediadocker" = {
+    home_name     = "apollo"
+    vm_id         = 200
+    cpu_cores     = 6
+    memory        = 12288
+    balloon       = 2048
+    disk_size     = 512
+    template_name = "alma-template-apollo"
+  }
+}
+
+# ============================================================================
+# Storage VMs (GlusterFS with disk passthrough)
+# ============================================================================
+storage_vms = {
+  "gluster-hades" = {
+    home_name     = "hades"
+    vm_id         = 301
+    cpu_cores     = 2
+    memory        = 4096
+    balloon       = 2048
+    disk_size     = 32
+    template_name = "alma-template-hades"
+    drive_id      = "/dev/disk/by-id/ata-ST12000VN0008-2PH103_SERIAL0001"
+  }
+  "gluster-poseidon" = {
+    home_name     = "poseidon"
+    vm_id         = 302
+    cpu_cores     = 2
+    memory        = 4096
+    balloon       = 2048
+    disk_size     = 32
+    template_name = "alma-template-poseidon"
+    drive_id      = "/dev/disk/by-id/ata-ST12000VN0008-2PH103_SERIAL0002"
+  }
+}
+
+# ============================================================================
+# Miscellaneous VMs
+# ============================================================================
+misc_vms = {
+  "gamewings" = {
+    home_name     = "zeus"
+    vm_id         = 110
+    cpu_cores     = 16
+    memory        = 24576
+    balloon       = 2048
+    disk_size     = 128
+    template_name = "alma-template-zeus"
+  }
+}
