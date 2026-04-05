@@ -9,8 +9,6 @@ on:
 env:
   TF_VAR_infisical_client_id: ${{ secrets.INFISICAL_CLIENT_ID }}
   TF_VAR_infisical_client_secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: us-west-2
   TF_STATE_KEY: env:/production/terraform.tfstate
 
@@ -19,9 +17,18 @@ jobs:
     name: Validate & Plan
     runs-on: self-hosted
     if: github.event_name == 'pull_request'
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-west-2
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -29,35 +36,40 @@ jobs:
           tofu_version: "1.10.6"
 
       - name: Init
-        working-directory: MaC
         run: tofu init -backend-config="key=${{ env.TF_STATE_KEY }}"
 
       - name: Format check
-        working-directory: MaC
         run: tofu fmt -check -recursive
 
       - name: Validate
-        working-directory: MaC
         run: tofu validate
 
       - name: Plan
-        working-directory: MaC
         run: tofu plan -var-file="terraform.tfvars" -out=tfplan
 
       - name: Upload plan
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-production-pr${{ github.event.pull_request.number }}
-          path: MaC/tfplan
+          path: tfplan
           retention-days: 7
 
   apply:
     name: Apply
     runs-on: self-hosted
     if: github.event_name == 'push'
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-west-2
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -65,13 +77,10 @@ jobs:
           tofu_version: "1.10.6"
 
       - name: Init
-        working-directory: MaC
         run: tofu init -backend-config="key=${{ env.TF_STATE_KEY }}"
 
       - name: Plan
-        working-directory: MaC
         run: tofu plan -var-file="terraform.tfvars" -out=tfplan
 
       - name: Apply
-        working-directory: MaC
         run: tofu apply -auto-approve tfplan
