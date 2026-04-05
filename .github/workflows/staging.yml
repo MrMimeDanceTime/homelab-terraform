@@ -50,7 +50,9 @@ jobs:
           if ! command -v checkov &> /dev/null; then
             pip3 install checkov
           fi
-          checkov -d . --framework terraform
+          echo "Scanning: $(pwd)"
+          ls *.tf
+          checkov -d . --framework terraform --output cli --compact
 
   plan:
     name: Plan
@@ -89,7 +91,7 @@ jobs:
           if ! command -v checkov &> /dev/null; then
             pip3 install checkov
           fi
-          checkov -d . --framework terraform
+          checkov -d . --framework terraform --output cli --compact
 
       - name: Plan
         run: tofu plan -var-file="terraform.tfvars" -out=tfplan
