@@ -50,9 +50,14 @@ jobs:
           if ! command -v checkov &> /dev/null; then
             pip3 install checkov
           fi
-          echo "Scanning: $(pwd)"
-          ls *.tf
           checkov -d . --framework terraform --output cli --compact
+
+      - name: Discord notification
+        if: always()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: ${{ job.status }}
 
   plan:
     name: Plan
@@ -102,3 +107,10 @@ jobs:
           name: tfplan-staging
           path: tfplan
           retention-days: 7
+
+      - name: Discord notification
+        if: always()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: ${{ job.status }}
