@@ -50,7 +50,7 @@ jobs:
           if ! command -v checkov &> /dev/null; then
             pip3 install checkov
           fi
-          checkov -d . --framework terraform --quiet
+          checkov -d . --framework terraform
 
       - name: Plan
         run: tofu plan -var-file="terraform.tfvars" -out=tfplan
