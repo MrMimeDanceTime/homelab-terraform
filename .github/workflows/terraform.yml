@@ -1,0 +1,153 @@
+name: Terraform
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  TOFU_VERSION: "1.10.6"
+  TF_VAR_infisical_client_id: ${{ secrets.INFISICAL_CLIENT_ID }}
+  TF_VAR_infisical_client_secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+  AWS_REGION: us-west-2
+  TF_STATE_KEY: env:/production/terraform.tfstate
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    concurrency:
+      group: terraform-plan-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Init
+        run: tofu init -input=false -backend-config="key=${{ env.TF_STATE_KEY }}"
+
+      - name: Format check
+        run: tofu fmt -check -recursive
+
+      - name: Validate
+        run: tofu validate
+
+      - name: Checkov scan
+        continue-on-error: true
+        run: |
+          if ! command -v checkov &> /dev/null; then
+            pip3 install checkov
+          fi
+          checkov -d . --framework terraform --output cli --compact
+
+      - name: Plan
+        run: |
+          tofu plan -input=false -no-color -var-file="terraform.tfvars" -out=tfplan
+          tofu show -no-color tfplan > plan.txt
+
+      - name: Comment plan on PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- tofu-plan -->';
+            const limit = 60000;
+            let plan = '';
+            try {
+              plan = fs.readFileSync('plan.txt', 'utf8');
+            } catch (e) {
+              plan = '(plan did not run; see the workflow log)';
+            }
+            if (plan.length > limit) {
+              plan = plan.slice(0, limit) + '\n\n... truncated, see the workflow log for the full plan ...';
+            }
+            const summary = (plan.match(/^(Plan: .*|No changes\..*)$/m) || ['(no summary line found)'])[0];
+            const body = [
+              marker,
+              `### OpenTofu plan for ${context.sha.slice(0, 7)}`,
+              '',
+              `**${summary}**`,
+              '',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```',
+              plan,
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Discord notification
+        if: always()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: ${{ job.status }}
+
+  apply:
+    name: Apply
+    runs-on: self-hosted
+    if: github.event_name == 'push'
+    concurrency:
+      group: terraform-apply
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Init
+        run: tofu init -input=false -backend-config="key=${{ env.TF_STATE_KEY }}"
+
+      - name: Plan
+        run: tofu plan -input=false -var-file="terraform.tfvars" -out=tfplan
+
+      - name: Apply
+        run: tofu apply -input=false -auto-approve tfplan
+
+      - name: Discord notification
+        if: always()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: ${{ job.status }}

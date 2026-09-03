@@ -1,5 +1,23 @@
+# Provider binaries and local init data
 .terraform/
+.terraform.tfstate.lock.info
+
+# State (lives in S3, never locally)
 *.tfstate
-*.tfstate.backup
-.terraform.lock.hcl
-terraform.tfvars
+*.tfstate.*
+
+# Plan output
+tfplan
+*.tfplan
+plan.txt
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Local overrides
+*.auto.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
