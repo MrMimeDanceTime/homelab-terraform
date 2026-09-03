@@ -1,313 +1,156 @@
 # Proxmox Infrastructure as Code
 
-This repository manages Proxmox virtual machines using OpenTofu/Terraform with GitLab CI/CD automation.
+OpenTofu configuration for the VMs running on a small Proxmox VE cluster (nodes
+`zeus`, `apollo`, `hades`, `poseidon`). Every VM is a cloud-init clone of a
+per-node AlmaLinux template, described by a few lines in `terraform.tfvars` and
+built by one reusable module.
 
-## Architecture
+Changes are deployed by GitHub Actions on a self-hosted runner inside the
+network: a pull request produces a plan as a PR comment, and merging to `main`
+applies it.
 
-### Directory Structure
+## Layout
 
 ```
-MaC/
-├── modules/
-│   └── proxmox-vm/          # Reusable VM module
-│       ├── main.tf          # VM resource definition
-│       ├── variables.tf     # Module inputs
-│       └── outputs.tf       # Module outputs
-├── main.tf                  # Root module - VM definitions
-├── variables.tf             # Input variable declarations
-├── terraform.tfvars         # Actual configuration (gitignored)
-├── terraform.tfvars.example # Configuration template
-├── locals.tf                # Common values and constants
-├── outputs.tf               # Infrastructure outputs
-├── providers.tf             # Provider configurations
-├── versions.tf              # Version constraints
-└── .gitlab-ci.yml           # CI/CD pipeline
+.
+├── main.tf                     # Four module calls, one per VM category
+├── variables.tf                # Input declarations (no environment-specific defaults)
+├── terraform.tfvars            # The actual VM inventory (committed; contains no secrets)
+├── terraform.tfvars.example    # Template for a fresh environment
+├── locals.tf                   # Shared values: storage pools, bridges, GPU mapping
+├── providers.tf                # Proxmox + Infisical providers, secret lookups
+├── versions.tf                 # OpenTofu + provider pins, S3 backend
+├── outputs.tf                  # VM IDs and addresses (sensitive) plus counts
+├── modules/proxmox-vm/         # The VM module
+└── .github/workflows/terraform.yml
 ```
 
-### VM Categories
+### VM categories
 
-- **General VMs** (`vms`): Standard workload VMs
-- **Jellyfin VMs** (`jellyfin_vms`): Media servers with GPU passthrough
-- **Storage VMs** (`storage_vms`): GlusterFS nodes with disk passthrough
-- **Misc VMs** (`misc_vms`): Miscellaneous Q35 VMs
+| Map            | Traits                                              |
+|----------------|-----------------------------------------------------|
+| `vms`          | General purpose                                     |
+| `jellyfin_vms` | q35 machine type, Intel iGPU passthrough            |
+| `storage_vms`  | GlusterFS nodes, whole-disk passthrough, storage bridge |
+| `misc_vms`     | q35 machine type, no passthrough                    |
 
-## Prerequisites
+All four use the same module. The differences are a handful of inputs set in
+`main.tf`, so adding a category is a new map plus a module call.
 
-### Required Tools
+## How a change ships
 
-- [OpenTofu](https://opentofu.org/) >= 1.8.0 (or Terraform >= 1.8.0)
-- GitLab account with CI/CD enabled
-- Proxmox VE cluster
-- Infisical account (for secrets management)
+1. Branch from `main`, edit `terraform.tfvars` (or the module), open a PR.
+2. The `Plan` job runs `fmt`, `validate`, a Checkov scan, and `tofu plan`, then
+   posts the plan as a comment on the PR. Pushing again updates the same comment.
+3. Merge. The `Apply` job re-plans against `main` and applies with
+   `-auto-approve`. Apply runs are serialized through a concurrency group so two
+   merges cannot apply at once.
 
-### Required Secrets in Infisical
+Renovate opens PRs against `main` weekly for provider and action updates. They
+go through the same plan step.
 
-Store the following secrets in your Infisical workspace:
+There is no separate staging environment. The PR plan is the review gate.
 
-- `root_password` - Proxmox root password
-- `ci_password` - Cloud-init user password
-- `ssh_key_pub` - SSH public key for cloud-init user
+### Runner and credentials
 
-### GitLab CI/CD Variables
+The workflow runs on a self-hosted runner because the Proxmox API is only
+reachable from inside the network. It needs these repository secrets:
 
-Set these in GitLab CI/CD settings:
+| Secret                    | Used for                                         |
+|---------------------------|--------------------------------------------------|
+| `AWS_ROLE_ARN`            | OIDC role assumed for S3 state and DynamoDB locks |
+| `INFISICAL_CLIENT_ID`     | Infisical machine identity                        |
+| `INFISICAL_CLIENT_SECRET` | Infisical machine identity                        |
+| `DISCORD_WEBHOOK`         | Job status notifications                          |
 
-- `INFISICAL_CLIENT_ID` - Infisical service token client ID
-- `INFISICAL_CLIENT_SECRET` - Infisical service token secret
-- `GITLAB_TOFU_AUTO_ENCRYPTION_PASSPHRASE` - State file encryption key
+No AWS keys and no Proxmox credentials are stored in GitHub.
 
-## Setup
+## Secrets
 
-### 1. Clone Repository
+Everything sensitive lives in Infisical and is read at plan time:
+
+| Infisical path          | Key             | Used as                       |
+|-------------------------|-----------------|-------------------------------|
+| `/HIDDEN`               | `root_password` | Proxmox API password          |
+| `/HIDDEN`               | `ci_password`   | Cloud-init user password      |
+| `/VISIBLE`              | `ssh_key_pub`   | Cloud-init authorized key     |
+
+The provider authenticates with a machine identity passed through
+`TF_VAR_infisical_client_id` and `TF_VAR_infisical_client_secret`. Locally,
+export those two variables before running OpenTofu.
+
+## State
+
+State is in S3 (`mac-iac-tfstate`, `us-west-2`) with server-side encryption and
+a DynamoDB lock table. The object key is passed at init time by the workflow
+(`env:/production/terraform.tfstate`). The lockfile `.terraform.lock.hcl` is
+committed so CI and local runs resolve identical provider builds.
+
+## Local use
 
 ```bash
-git clone <repository-url>
-cd MaC
+export TF_VAR_infisical_client_id=...
+export TF_VAR_infisical_client_secret=...
+# AWS credentials for the state bucket via your usual mechanism (profile, SSO, env)
+
+tofu init -backend-config="key=env:/production/terraform.tfstate"
+tofu fmt -check -recursive
+tofu validate
+tofu plan -var-file=terraform.tfvars
 ```
 
-### 2. Configure Variables
+Prefer opening a PR over applying locally, so the change is recorded and the
+plan is reviewed.
+
+## Common tasks
+
+**Add a VM.** Add an entry to the right map in `terraform.tfvars`. Every VM
+needs `home_name` (Proxmox node), `vm_id`, `cpu_cores`, `memory`, `balloon`
+(`0` disables ballooning), `disk_size` in GB, and `template_name`. Storage VMs
+also need `drive_id`, the `/dev/disk/by-id/...` path of the disk to pass
+through.
+
+**Resize a VM.** Change the numbers. CPU, memory, and disk growth apply in
+place; disk shrink is not supported by Proxmox.
+
+**Remove a VM.** Delete its entry. The plan will show a destroy. Merge only if
+that is what you want.
+
+**Import a VM built by hand.**
 
 ```bash
-cp terraform.tfvars.example terraform.tfvars
+tofu import 'module.vms["name"].proxmox_vm_qemu.vm' <node>/<vmid>
 ```
 
-Edit `terraform.tfvars` and set:
-- `infisical_workspace_id` - Your Infisical workspace ID
-- VM configurations (or use the examples)
+## Module interface
 
-### 3. Configure Infisical
+`modules/proxmox-vm` creates one `proxmox_vm_qemu` resource.
 
-Create a service token in Infisical with access to your workspace and add the secrets listed above.
+| Input               | Required | Notes                                           |
+|---------------------|----------|-------------------------------------------------|
+| `name`, `target_node`, `template_name` | yes | Clone source is looked up by name on the node |
+| `cpu_cores`, `memory`, `balloon`, `disk_size` | yes | Sizing |
+| `disk_storage`, `cloudinit_storage`, `network_bridge` | yes | Usually from `locals.tf` |
+| `ciuser`, `cipassword`, `sshkeys` | yes | Cloud-init identity |
+| `vm_id`             | no       | Proxmox picks one if null                       |
+| `machine_type`      | no       | `q35` is required for PCIe passthrough          |
+| `passthrough_disk`  | no       | Adds `scsi1` as a raw passthrough of this device |
+| `gpu_passthrough`   | no       | Object with `mapping_id`, `rombar`, `pcie`, `primary_gpu`, `vendor_id` |
 
-## Usage
+Outputs: `id`, `vmid`, `name`, `default_ipv4_address`, `ssh_host`.
 
-### Local Development
+`sshkeys` and `ipconfig0` are in `ignore_changes` because cloud-init only reads
+them on first boot. Rotating the key in Infisical does not touch existing VMs.
 
-**Note**: Local testing requires Infisical credentials to be set:
+## Known compromises
 
-```bash
-export INFISICAL_CLIENT_ID="your-client-id"
-export INFISICAL_CLIENT_SECRET="your-client-secret"
-```
+- The Proxmox provider is `Telmate/proxmox` pinned to `3.0.1-rc9`. The 3.x line
+  has only shipped release candidates, so there is no stable target yet.
+- Authentication is `root@pam` with a password rather than an API token, and
+  TLS verification is disabled because the cluster uses the self-signed
+  Proxmox certificate. Both are set explicitly in `terraform.tfvars`.
+- The plan shown on the PR and the plan applied after merge are separate runs.
+  Applying the exact reviewed plan would need the artifact handed between
+  workflow runs, which is more machinery than this repo warrants.
 
-Initialize Terraform:
-```bash
-terraform init
-```
-
-Validate configuration:
-```bash
-terraform validate
-```
-
-Plan changes:
-```bash
-terraform plan
-```
-
-Apply changes (use with caution):
-```bash
-terraform apply
-```
-
-### GitLab CI/CD Pipeline
-
-The pipeline uses a branch-based workflow:
-
-#### Staging Branch
-- **Purpose**: Test and validate changes
-- **Triggers**: Commits to `staging` or MRs to `staging`
-- **Actions**: `validate` → `plan`
-- **Result**: Shows what would change, no apply
-
-#### Main Branch
-- **Purpose**: Production deployment
-- **Triggers**: Commits to `main` (usually from merging staging)
-- **Actions**: `validate` → `plan` → `apply`
-- **Result**: Automatically applies changes to infrastructure
-
-#### Workflow
-
-1. Create feature branch from `staging`
-2. Make changes and commit
-3. Open MR to `staging` - pipeline validates
-4. Merge to `staging` - pipeline validates and plans
-5. Review plan output
-6. Open MR from `staging` to `main` - pipeline validates and plans
-7. Merge to `main` - pipeline applies changes
-
-## Module Usage
-
-### Basic VM
-
-```hcl
-module "my_vm" {
-  source = "./modules/proxmox-vm"
-
-  name          = "my-vm"
-  target_node   = "proxmox-node"
-  vm_id         = 100
-  template_name = "ubuntu-template"
-
-  cpu_cores = 2
-  memory    = 4096
-  balloon   = 2048
-  disk_size = 32
-
-  disk_storage      = "local-lvm"
-  cloudinit_storage = "local-lvm"
-  network_bridge    = "vmbr0"
-
-  ciuser     = "admin"
-  cipassword = var.ci_password
-  sshkeys    = var.ssh_key
-}
-```
-
-### VM with GPU Passthrough
-
-```hcl
-module "jellyfin" {
-  source = "./modules/proxmox-vm"
-
-  # ... basic config ...
-
-  machine_type = "q35"
-  gpu_passthrough = {
-    mapping_id  = "igpu"
-    rombar      = true
-    pcie        = true
-    primary_gpu = false
-    vendor_id   = "8086"
-  }
-}
-```
-
-### VM with Disk Passthrough
-
-```hcl
-module "storage" {
-  source = "./modules/proxmox-vm"
-
-  # ... basic config ...
-
-  passthrough_disk = "/dev/disk/by-id/ata-..."
-  network_bridge   = "vmbr2"
-}
-```
-
-## Outputs
-
-All outputs are marked as sensitive and stored only in the encrypted state file.
-
-View outputs:
-```bash
-terraform output          # List all outputs
-terraform output vms      # Specific output
-terraform output -json    # JSON format
-```
-
-Available outputs:
-- `vms` - General VM information
-- `storage_vms` - Storage VM information
-- `jellyfin_vms` - Jellyfin VM information
-- `misc_vms` - Misc VM information
-- `vm_summary` - VM counts (non-sensitive)
-
-## Security
-
-### State File
-- Stored in GitLab with encryption enabled
-- Encrypted with passphrase from CI/CD variable
-- Never commit state files to git
-
-### Secrets
-- All secrets stored in Infisical
-- Never commit `terraform.tfvars` (gitignored)
-- Use `terraform.tfvars.example` as template
-- Outputs marked sensitive to prevent logging
-
-### TLS Verification
-⚠️ **Warning**: TLS verification is disabled by default (`proxmox_tls_insecure = true`)
-
-For production, enable TLS verification:
-1. Set up proper SSL certificates on Proxmox
-2. Set `proxmox_tls_insecure = false` in `terraform.tfvars`
-
-## Maintenance
-
-### Adding a New VM
-
-1. Edit `terraform.tfvars`
-2. Add VM to appropriate map (`vms`, `jellyfin_vms`, etc.)
-3. Commit to staging branch
-4. Review plan output
-5. Merge to main to apply
-
-### Updating a VM
-
-1. Edit VM configuration in `terraform.tfvars`
-2. Check `lifecycle.ignore_changes` in module to see what's ignored
-3. Commit and review plan
-4. Merge to apply
-
-### Removing a VM
-
-1. Remove VM from `terraform.tfvars`
-2. Commit to staging and review plan
-3. Merge to main - **VM will be destroyed**
-
-### Updating Providers
-
-Renovate bot automatically creates MRs for provider updates.
-
-Manual update:
-```bash
-terraform init -upgrade
-```
-
-## Troubleshooting
-
-### "No Infisical secrets found"
-- Verify `infisical_workspace_id` is correct
-- Check Infisical service token has correct permissions
-- Verify secrets exist in Infisical at specified path
-
-### "State locked"
-If pipeline fails mid-run, state may be locked:
-```bash
-terraform force-unlock <lock-id>
-```
-
-### "Resource already exists"
-If VM was created outside Terraform:
-```bash
-terraform import 'module.vms["vm-name"].proxmox_vm_qemu.vm' <proxmox-node>/<vmid>
-```
-
-## Migration from Old Structure
-
-This repository was refactored from a monolithic structure to a modular one:
-
-**Changes**:
-- 310-line main.tf → 138 lines (55% reduction)
-- Removed ~80% code duplication
-- Added Infisical integration
-- Created reusable module
-- Cleaned up dead code (kube_vms, runner_vms)
-- Added proper outputs
-
-**State compatibility**: The refactored code produces identical infrastructure. Use `terraform plan` to verify before applying.
-
-## Contributing
-
-1. Create feature branch from `staging`
-2. Make changes
-3. Open MR to `staging`
-4. Review validation results
-5. Once merged to staging, review plan output
-6. Open MR to `main` for production deployment
-
-## License
-
-[Specify your license here]
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the structure.
