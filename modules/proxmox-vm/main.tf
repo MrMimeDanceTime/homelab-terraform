@@ -84,6 +84,9 @@ resource "proxmox_vm_qemu" "vm" {
   cipassword = var.cipassword
   sshkeys    = var.sshkeys
 
+  # Cloud-init values are only consumed on first boot, so drift here is
+  # expected. This also means rotating ssh_key_pub in Infisical does NOT
+  # propagate to existing VMs; push new keys through cloud-init or SSH.
   lifecycle {
     ignore_changes = [
       sshkeys,

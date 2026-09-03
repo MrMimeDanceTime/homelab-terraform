@@ -3,8 +3,8 @@ terraform {
 
   required_providers {
     proxmox = {
-      source  = "Telmate/proxmox"
-      version = "3.0.1-rc9"
+      source = "Telmate/proxmox"
+      # Version is pinned once, in the root module's versions.tf.
     }
   }
 }

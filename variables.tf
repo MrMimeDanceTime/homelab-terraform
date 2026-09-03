@@ -3,9 +3,8 @@
 # ============================================================================
 
 variable "proxmox_api_url" {
-  description = "Proxmox API URL (e.g., https://192.0.2.10:8006/api2/json)"
+  description = "Proxmox API URL (e.g., https://proxmox.example:8006/api2/json)"
   type        = string
-  default     = "https://192.0.2.10:8006/api2/json"
 }
 
 variable "proxmox_user" {
@@ -15,9 +14,9 @@ variable "proxmox_user" {
 }
 
 variable "proxmox_tls_insecure" {
-  description = "Skip TLS verification (use only for testing)"
+  description = "Skip TLS verification of the Proxmox API certificate. Set explicitly in terraform.tfvars."
   type        = bool
-  default     = true
+  default     = false
 }
 
 # ============================================================================
