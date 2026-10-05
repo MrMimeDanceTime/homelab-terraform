@@ -1,24 +1,31 @@
-resource "proxmox_vm_qemu" "vm" {
-  name               = var.name
-  target_node        = var.target_node
-  vmid               = var.vm_id
-  clone              = var.template_name
-  agent              = 1
-  os_type            = "cloud-init"
-  machine            = var.machine_type
-  memory             = var.memory
-  balloon            = var.balloon
-  scsihw             = "virtio-scsi-single"
-  start_at_node_boot = true
-  full_clone         = true
+resource "proxmox_virtual_environment_vm" "vm" {
+  name        = var.name
+  node_name   = var.target_node
+  vm_id       = var.vm_id
+  description = "Managed by Terraform."
 
-  # Explicit so the provider clears the legacy vm_state attribute that
-  # pre-3.0.2 state still carries. Without it every plan shows a no-op diff.
-  power_state = "running"
+  machine       = var.machine_type
+  scsi_hardware = "virtio-scsi-single"
+  on_boot       = true
+  started       = true
 
-  # Matches PVE's defaults (-1 = any order, default delay/timeout). Declared
-  # so the provider stops trying to null the block on every plan.
-  startup_shutdown {}
+  # These are pets. A change that needs a reboot should fail the apply, not
+  # power-cycle the VM (mediadocker runs the CI runner doing the apply).
+  reboot_after_update = false
+
+  clone {
+    vm_id     = var.template_vm_id
+    node_name = var.template_node
+    full      = true
+  }
+
+  agent {
+    enabled = true
+  }
+
+  operating_system {
+    type = "l26"
+  }
 
   cpu {
     cores   = var.cpu_cores
@@ -27,78 +34,78 @@ resource "proxmox_vm_qemu" "vm" {
     numa    = false
   }
 
-  disks {
-    ide {
-      ide2 {
-        cloudinit {
-          storage = var.cloudinit_storage
-        }
-      }
-    }
+  memory {
+    dedicated = var.memory
+    floating  = var.balloon # 0 disables the balloon device
+  }
 
-    scsi {
-      # Primary disk (scsi0)
-      scsi0 {
-        disk {
-          backup             = true
-          cache              = "none"
-          discard            = true
-          emulatessd         = true
-          iothread           = true
-          mbps_r_burst       = 0.0
-          mbps_r_concurrent  = 0.0
-          mbps_wr_burst      = 0.0
-          mbps_wr_concurrent = 0.0
-          replicate          = true
-          size               = var.disk_size
-          storage            = var.disk_storage
-        }
-      }
+  disk {
+    interface    = "scsi0"
+    datastore_id = var.disk_storage
+    size         = var.disk_size
+    cache        = "none"
+    discard      = "on"
+    ssd          = true
+    iothread     = true
+    backup       = true
+    replicate    = true
+  }
 
-      # Optional: Passthrough disk (scsi1) for storage VMs
-      dynamic "scsi1" {
-        for_each = var.passthrough_disk != null ? [1] : []
-        content {
-          passthrough {
-            file = var.passthrough_disk
-          }
-        }
-      }
+  # Raw host disk for the Gluster VMs. PVE only lets root@pam attach these,
+  # so creating a storage VM or changing this disk is a manual root operation.
+  dynamic "disk" {
+    for_each = var.passthrough_disk != null ? [var.passthrough_disk] : []
+    content {
+      interface         = "scsi1"
+      datastore_id      = ""
+      path_in_datastore = disk.value
+      size              = var.passthrough_disk_size
+      backup            = true # matches today; vzdump of a 12 TB raw disk is probably unwanted
+      replicate         = false
     }
   }
 
-  network {
-    id     = 0
-    model  = "virtio"
+  network_device {
     bridge = var.network_bridge
+    model  = "virtio"
   }
 
-  # Optional: GPU passthrough for Jellyfin VMs
-  dynamic "pci" {
+  dynamic "hostpci" {
     for_each = var.gpu_passthrough != null ? [var.gpu_passthrough] : []
     content {
-      id          = 0
-      mapping_id  = pci.value.mapping_id
-      rombar      = pci.value.rombar
-      pcie        = pci.value.pcie
-      primary_gpu = pci.value.primary_gpu
-      vendor_id   = pci.value.vendor_id
+      device  = "hostpci0"
+      mapping = hostpci.value.mapping_id
+      pcie    = hostpci.value.pcie
+      rombar  = hostpci.value.rombar
+      xvga    = hostpci.value.primary_gpu
     }
   }
 
-  # Cloud-init configuration
-  ipconfig0  = "ip=dhcp"
-  ciuser     = var.ciuser
-  cipassword = var.cipassword
-  sshkeys    = var.sshkeys
+  initialization {
+    datastore_id = var.cloudinit_storage
+    interface    = "ide2"
 
-  # Cloud-init values are only consumed on first boot, so drift here is
-  # expected. This also means rotating ssh_key_pub in Infisical does NOT
-  # propagate to existing VMs; push new keys through cloud-init or SSH.
+    ip_config {
+      ipv4 {
+        address = "dhcp"
+      }
+    }
+
+    user_account {
+      username = var.ciuser
+      password = var.cipassword
+      keys     = [trimspace(var.sshkeys)]
+    }
+  }
+
   lifecycle {
     ignore_changes = [
-      sshkeys,
-      ipconfig0,
+      # Every clone attribute is ForceNew, and imported VMs have no clone
+      # recorded. It only matters at creation anyway.
+      clone,
+      # Cloud-init is consumed on first boot only, so drift here is expected.
+      # Rotating ssh_key_pub in Infisical does NOT reach existing VMs.
+      initialization,
     ]
   }
 }

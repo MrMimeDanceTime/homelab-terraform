@@ -17,6 +17,20 @@ locals {
     rombar      = true
     pcie        = true
     primary_gpu = false
-    vendor_id   = "8086"
+  }
+
+  # ST12000VN0008 passthrough disks, as PVE reports their size.
+  gluster_disk_size_gb = 11176
+
+  # Template name -> {vm_id, node_name}, so tfvars can keep naming templates.
+  templates = {
+    for vm in data.proxmox_virtual_environment_vms.templates.vms : vm.name => vm
+  }
+}
+
+data "proxmox_virtual_environment_vms" "templates" {
+  filter {
+    name   = "template"
+    values = [true]
   }
 }

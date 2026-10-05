@@ -11,6 +11,12 @@ terraform {
 
   required_providers {
     proxmox = {
+      source  = "bpg/proxmox"
+      version = "~> 0.115.0"
+    }
+    # Only so migration.tf can forget the old proxmox_vm_qemu state entries.
+    # Remove together with migration.tf once the bpg import has applied.
+    telmate = {
       source  = "Telmate/proxmox"
       version = "3.0.2-rc10"
     }

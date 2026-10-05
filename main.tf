@@ -7,10 +7,11 @@ module "vms" {
   for_each = var.vms
 
   # Core configuration
-  name          = each.key
-  target_node   = each.value.home_name
-  vm_id         = each.value.vm_id
-  template_name = each.value.template_name
+  name           = each.key
+  target_node    = each.value.home_name
+  vm_id          = each.value.vm_id
+  template_vm_id = local.templates[each.value.template_name].vm_id
+  template_node  = local.templates[each.value.template_name].node_name
 
   # Resources
   cpu_cores = each.value.cpu_cores
@@ -40,10 +41,11 @@ module "storage_vms" {
   for_each = var.storage_vms
 
   # Core configuration
-  name          = each.key
-  target_node   = each.value.home_name
-  vm_id         = each.value.vm_id
-  template_name = each.value.template_name
+  name           = each.key
+  target_node    = each.value.home_name
+  vm_id          = each.value.vm_id
+  template_vm_id = local.templates[each.value.template_name].vm_id
+  template_node  = local.templates[each.value.template_name].node_name
 
   # Resources
   cpu_cores = each.value.cpu_cores
@@ -52,9 +54,10 @@ module "storage_vms" {
   disk_size = each.value.disk_size
 
   # Storage
-  disk_storage      = local.default_disk_storage
-  cloudinit_storage = local.default_cloudinit_storage
-  passthrough_disk  = each.value.drive_id # Additional disk passthrough
+  disk_storage          = local.default_disk_storage
+  cloudinit_storage     = local.default_cloudinit_storage
+  passthrough_disk      = each.value.drive_id # Additional disk passthrough
+  passthrough_disk_size = local.gluster_disk_size_gb
 
   # Network (uses storage network bridge)
   network_bridge = local.storage_network_bridge
@@ -74,11 +77,12 @@ module "jellyfin_vms" {
   for_each = var.jellyfin_vms
 
   # Core configuration
-  name          = each.key
-  target_node   = each.value.home_name
-  vm_id         = each.value.vm_id
-  template_name = each.value.template_name
-  machine_type  = "q35" # Required for PCIe passthrough
+  name           = each.key
+  target_node    = each.value.home_name
+  vm_id          = each.value.vm_id
+  template_vm_id = local.templates[each.value.template_name].vm_id
+  template_node  = local.templates[each.value.template_name].node_name
+  machine_type   = "q35" # Required for PCIe passthrough
 
   # Resources
   cpu_cores = each.value.cpu_cores
@@ -111,11 +115,12 @@ module "misc_vms" {
   for_each = var.misc_vms
 
   # Core configuration
-  name          = each.key
-  target_node   = each.value.home_name
-  vm_id         = each.value.vm_id
-  template_name = each.value.template_name
-  machine_type  = "q35" # Q35 machine type
+  name           = each.key
+  target_node    = each.value.home_name
+  vm_id          = each.value.vm_id
+  template_vm_id = local.templates[each.value.template_name].vm_id
+  template_node  = local.templates[each.value.template_name].node_name
+  machine_type   = "q35" # Q35 machine type
 
   # Resources
   cpu_cores = each.value.cpu_cores

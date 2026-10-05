@@ -15,8 +15,13 @@ variable "vm_id" {
   default     = null
 }
 
-variable "template_name" {
-  description = "Name of the cloud-init template to clone"
+variable "template_vm_id" {
+  description = "VM ID of the template to clone"
+  type        = number
+}
+
+variable "template_node" {
+  description = "Node the template lives on"
   type        = string
 }
 
@@ -53,6 +58,12 @@ variable "cloudinit_storage" {
 }
 
 # Optional: Additional disk passthrough (for storage VMs)
+variable "passthrough_disk_size" {
+  description = "Size in GB of the passthrough disk, as PVE reports it. Must match, or the plan shows a resize."
+  type        = number
+  default     = null
+}
+
 variable "passthrough_disk" {
   description = "Optional disk passthrough device path (e.g., /dev/disk/by-id/...)"
   type        = string
@@ -90,7 +101,6 @@ variable "gpu_passthrough" {
     rombar      = bool
     pcie        = bool
     primary_gpu = bool
-    vendor_id   = string
   })
   default = null
 }

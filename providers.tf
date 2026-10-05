@@ -7,8 +7,15 @@ provider "infisical" {
   client_secret = var.infisical_client_secret
 }
 
-# Proxmox Provider
+# Proxmox Provider (bpg)
 provider "proxmox" {
+  endpoint  = trimsuffix(var.proxmox_api_url, "api2/json")
+  api_token = "${var.proxmox_api_token_id}=${data.infisical_secrets.hidden.secrets["pm_api_token_secret"].value}"
+  insecure  = var.proxmox_tls_insecure
+}
+
+# Old Telmate provider, kept only for the migration. See versions.tf.
+provider "telmate" {
   pm_api_url          = var.proxmox_api_url
   pm_api_token_id     = var.proxmox_api_token_id
   pm_api_token_secret = data.infisical_secrets.hidden.secrets["pm_api_token_secret"].value
