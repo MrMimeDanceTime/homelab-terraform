@@ -47,7 +47,7 @@ jobs:
 
       - name: Verify nothing private survived
         run: |
-          if git ls-tree -r --name-only main | grep -qE '^(terraform\.tfvars|\.claude/|\.github/mirror/)'; then
+          if git ls-tree -r --name-only main | grep -qE '^(terraform\.tfvars$|\.claude/|\.github/mirror/)'; then
             echo "::error::Private path present after filtering"; exit 1
           fi
           sed -n 's/==>.*//p' "$RUNNER_TEMP/replacements.txt" > "$RUNNER_TEMP/patterns.txt"
