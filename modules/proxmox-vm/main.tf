@@ -1,16 +1,16 @@
 resource "proxmox_vm_qemu" "vm" {
-  name        = var.name
-  target_node = var.target_node
-  vmid        = var.vm_id
-  clone       = var.template_name
-  agent       = 1
-  os_type     = "cloud-init"
-  machine     = var.machine_type
-  memory      = var.memory
-  balloon     = var.balloon
-  scsihw      = "virtio-scsi-single"
-  onboot      = true
-  full_clone  = true
+  name               = var.name
+  target_node        = var.target_node
+  vmid               = var.vm_id
+  clone              = var.template_name
+  agent              = 1
+  os_type            = "cloud-init"
+  machine            = var.machine_type
+  memory             = var.memory
+  balloon            = var.balloon
+  scsihw             = "virtio-scsi-single"
+  start_at_node_boot = true
+  full_clone         = true
 
   cpu {
     cores   = var.cpu_cores

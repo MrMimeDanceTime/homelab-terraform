@@ -3,5 +3,13 @@
   "extends": [
     "config:recommended",
     "schedule:weekly"
+  ],
+  "packageRules": [
+    {
+      "description": "Telmate only ships release candidates. Without this, Renovate will not move between rc lines (3.0.1-rcN to 3.0.2-rcN) and the pin goes stale silently.",
+      "matchDatasources": ["terraform-provider"],
+      "matchPackageNames": ["Telmate/proxmox", "telmate/proxmox"],
+      "ignoreUnstable": false
+    }
   ]
 }
