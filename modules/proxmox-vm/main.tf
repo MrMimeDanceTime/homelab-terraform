@@ -12,6 +12,14 @@ resource "proxmox_vm_qemu" "vm" {
   start_at_node_boot = true
   full_clone         = true
 
+  # Explicit so the provider clears the legacy vm_state attribute that
+  # pre-3.0.2 state still carries. Without it every plan shows a no-op diff.
+  power_state = "running"
+
+  # Matches PVE's defaults (-1 = any order, default delay/timeout). Declared
+  # so the provider stops trying to null the block on every plan.
+  startup_shutdown {}
+
   cpu {
     cores   = var.cpu_cores
     sockets = 1
