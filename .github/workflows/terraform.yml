@@ -78,8 +78,10 @@ jobs:
 
       - name: Plan
         run: |
-          tofu plan -input=false -no-color -var-file="terraform.tfvars" -out=tfplan
+          tofu plan -input=false -no-color -var-file="terraform.tfvars" -out=tfplan | tee plan_log.txt
           tofu show -no-color tfplan > plan.txt
+          # tofu show omits the summary line when a plan imports or forgets.
+          grep -m1 -E '^(Plan: |No changes\.)' plan_log.txt > plan_summary.txt || true
 
       # The plan file holds data source values, Infisical secrets included,
       # so it is encrypted before it becomes an artifact.
@@ -116,7 +118,10 @@ jobs:
             if (plan.length > limit) {
               plan = plan.slice(0, limit) + '\n\n... truncated, see the workflow log for the full plan ...';
             }
-            const summary = (plan.match(/^(Plan: .*|No changes\..*)$/m) || ['(no summary line found)'])[0];
+            let summary = '(no summary line found)';
+            try {
+              summary = fs.readFileSync('plan_summary.txt', 'utf8').trim() || summary;
+            } catch (e) {}
             const body = [
               marker,
               `### OpenTofu plan for ${context.payload.pull_request.head.sha.slice(0, 7)}`,

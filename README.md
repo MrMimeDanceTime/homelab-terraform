@@ -40,11 +40,22 @@ All four use the same module. The differences are a handful of inputs set in
 ## How a change ships
 
 1. Branch from `main`, edit `terraform.tfvars` (or the module), open a PR.
-2. The `Plan` job runs `fmt`, `validate`, a Checkov scan, and `tofu plan`, then
-   posts the plan as a comment on the PR. Pushing again updates the same comment.
-3. Merge. The `Apply` job re-plans against `main` and applies with
-   `-auto-approve`. Apply runs are serialized through a concurrency group so two
-   merges cannot apply at once.
+2. The `Plan` job runs `fmt`, `validate`, a gating Checkov scan, and
+   `tofu plan`, then posts the plan as a comment on the PR. Pushing again
+   updates the same comment. The plan file is encrypted and uploaded as an
+   artifact together with the hash of the tree it was planned against.
+3. Squash-merge. The `Apply reviewed plan` job applies that exact plan file
+   without re-planning. It refuses to run when:
+   - the push to `main` did not come from a merged PR
+   - the PR's newest plan was made on an older head than the one merged
+   - `main`'s tree differs from the planned tree (something else merged)
+
+   OpenTofu also refuses a saved plan if state changed after it was made.
+
+A nightly `Drift check` plans `main` with `-detailed-exitcode` and posts to
+Discord if Proxmox no longer matches. Running the workflow by hand with
+`apply=true` re-plans `main` and applies it: the escape hatch for when no
+reviewed plan exists. Apply and drift runs share a concurrency group.
 
 Renovate opens PRs against `main` weekly for provider and action updates. They
 go through the same plan step.
@@ -62,8 +73,20 @@ reachable from inside the network. It needs these repository secrets:
 | `INFISICAL_CLIENT_ID`     | Infisical machine identity                        |
 | `INFISICAL_CLIENT_SECRET` | Infisical machine identity                        |
 | `DISCORD_WEBHOOK`         | Job status notifications                          |
+| `PLAN_ENCRYPTION_KEY`     | Encrypts the plan artifact, which holds Infisical values |
+| `MIRROR_DEPLOY_KEY`       | Pushes the scrubbed public mirror                 |
 
 No AWS keys and no Proxmox credentials are stored in GitHub.
+
+### Public mirror
+
+This repo is private so the self-hosted runner accepts its jobs. The
+`Public mirror` workflow publishes a scrubbed copy of `main` to
+[MrMimeDanceTime/homelab-terraform](https://github.com/MrMimeDanceTime/homelab-terraform)
+on every push: `git filter-repo` strips `terraform.tfvars`, `.claude/`, and
+`.github/mirror/` from all history and rewrites the strings in
+`.github/mirror/replacements.txt`. A verify step fails the job before pushing if
+any of them survive. Never commit to the mirror directly.
 
 ## Secrets
 
@@ -119,38 +142,48 @@ that is what you want.
 **Import a VM built by hand.**
 
 ```bash
-tofu import 'module.vms["name"].proxmox_vm_qemu.vm' <node>/<vmid>
+tofu import 'module.vms["name"].proxmox_virtual_environment_vm.vm' <node>/<vmid>
 ```
+
+Or, better, an `import` block in a PR so the import goes through review.
 
 ## Module interface
 
-`modules/proxmox-vm` creates one `proxmox_vm_qemu` resource.
+`modules/proxmox-vm` creates one `proxmox_virtual_environment_vm` resource
+([bpg/proxmox](https://registry.terraform.io/providers/bpg/proxmox/latest)).
+The root module resolves `template_name` from `terraform.tfvars` to a template
+VM ID and node through the `proxmox_virtual_environment_vms` data source.
 
 | Input               | Required | Notes                                           |
 |---------------------|----------|-------------------------------------------------|
-| `name`, `target_node`, `template_name` | yes | Clone source is looked up by name on the node |
+| `name`, `target_node` | yes | |
+| `template_vm_id`, `template_node` | yes | Clone source |
 | `cpu_cores`, `memory`, `balloon`, `disk_size` | yes | Sizing |
 | `disk_storage`, `cloudinit_storage`, `network_bridge` | yes | Usually from `locals.tf` |
 | `ciuser`, `cipassword`, `sshkeys` | yes | Cloud-init identity |
 | `vm_id`             | no       | Proxmox picks one if null                       |
 | `machine_type`      | no       | `q35` is required for PCIe passthrough          |
-| `passthrough_disk`  | no       | Adds `scsi1` as a raw passthrough of this device |
-| `gpu_passthrough`   | no       | Object with `mapping_id`, `rombar`, `pcie`, `primary_gpu`, `vendor_id` |
+| `passthrough_disk`, `passthrough_disk_size` | no | Adds `scsi1` as a raw passthrough of this device. Size must match what PVE reports |
+| `gpu_passthrough`   | no       | Object with `mapping_id`, `rombar`, `pcie`, `primary_gpu` |
 
 Outputs: `id`, `vmid`, `name`, `default_ipv4_address`, `ssh_host`.
 
-`sshkeys` and `ipconfig0` are in `ignore_changes` because cloud-init only reads
-them on first boot. Rotating the key in Infisical does not touch existing VMs.
+`clone` and `initialization` are in `ignore_changes`. Every clone attribute
+forces replacement and imported VMs have none recorded; cloud-init is read on
+first boot only. Rotating the key in Infisical does not touch existing VMs.
+
+`reboot_after_update` is `false`: a change that needs a reboot fails the apply
+instead of power-cycling the VM.
 
 ## Known compromises
 
-- The Proxmox provider is `Telmate/proxmox` pinned to `3.0.1-rc9`. The 3.x line
-  has only shipped release candidates, so there is no stable target yet.
-- Authentication is `root@pam` with a password rather than an API token, and
-  TLS verification is disabled because the cluster uses the self-signed
-  Proxmox certificate. Both are set explicitly in `terraform.tfvars`.
-- The plan shown on the PR and the plan applied after merge are separate runs.
-  Applying the exact reviewed plan would need the artifact handed between
-  workflow runs, which is more machinery than this repo warrants.
+- Authentication is the `terraform@pve!tofu` API token, bound to a
+  `TerraformProv` role. PVE only lets `root@pam` attach a raw
+  `/dev/disk/by-id` device, so creating a storage VM or changing its
+  passthrough disk is a manual root operation.
+- TLS verification is disabled because the cluster uses the self-signed
+  Proxmox certificate. It is set explicitly in `terraform.tfvars`.
+- Without branch protection (a private repo on GitHub Free), the guarantee
+  that only reviewed plans apply lives in the workflow, not in GitHub settings.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind the structure.
