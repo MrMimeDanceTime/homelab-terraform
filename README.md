@@ -71,7 +71,7 @@ Everything sensitive lives in Infisical and is read at plan time:
 
 | Infisical path          | Key             | Used as                       |
 |-------------------------|-----------------|-------------------------------|
-| `/HIDDEN`               | `root_password` | Proxmox API password          |
+| `/HIDDEN`               | `pm_api_token_secret` | Proxmox API token secret (`terraform@pve!tofu`) |
 | `/HIDDEN`               | `ci_password`   | Cloud-init user password      |
 | `/VISIBLE`              | `ssh_key_pub`   | Cloud-init authorized key     |
 

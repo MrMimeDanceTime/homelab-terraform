@@ -13,14 +13,14 @@ infisical_workspace_id = "your-workspace-id-here"
 infisical_env = "prod"
 
 # NOTE: Secrets are fetched from:
-#   - /HIDDEN folder: root_password, ci_password
+#   - /HIDDEN folder: pm_api_token_secret, ci_password
 #   - /VISIBLE folder: ssh_key_pub
 
 # ============================================================================
 # Proxmox Configuration
 # ============================================================================
 proxmox_api_url = "https://proxmox.example:8006/api2/json"
-proxmox_user    = "root@pam"
+proxmox_api_token_id = "terraform@pve!tofu"
 # Set to true only if the Proxmox API uses a self-signed certificate.
 proxmox_tls_insecure = false
 

@@ -7,10 +7,9 @@ variable "proxmox_api_url" {
   type        = string
 }
 
-variable "proxmox_user" {
-  description = "Proxmox user for authentication"
+variable "proxmox_api_token_id" {
+  description = "Proxmox API token ID (user@realm!token). The secret comes from Infisical /HIDDEN/pm_api_token_secret."
   type        = string
-  default     = "root@pam"
 }
 
 variable "proxmox_tls_insecure" {
