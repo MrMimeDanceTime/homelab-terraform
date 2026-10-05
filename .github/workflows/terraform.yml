@@ -1,10 +1,30 @@
 name: Terraform
 
+# Plan on PR, apply the exact reviewed plan on merge, check for drift nightly.
+#
+# The apply job never re-plans. It applies the encrypted tfplan the PR's last
+# plan run uploaded, and refuses when:
+#   - the push to main did not come from a merged PR
+#   - the PR's last plan was made on an older head than the one merged
+#   - main's tree differs from the tree that was planned (main moved)
+# tofu itself also refuses a saved plan whose state has changed since.
+#
+# Escape hatch: run this workflow by hand with apply=true to re-plan main and
+# apply it. That is a deliberate, logged action, not something a push can do.
+
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    - cron: "17 9 * * *" # nightly drift check, 04:17 Central
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Re-plan main and apply it (use when no reviewed plan exists)"
+        type: boolean
+        default: false
 
 env:
   TOFU_VERSION: "1.10.6"
@@ -50,7 +70,6 @@ jobs:
         run: tofu validate
 
       - name: Checkov scan
-        continue-on-error: true
         run: |
           if ! command -v checkov &> /dev/null; then
             pip3 install checkov
@@ -61,6 +80,24 @@ jobs:
         run: |
           tofu plan -input=false -no-color -var-file="terraform.tfvars" -out=tfplan
           tofu show -no-color tfplan > plan.txt
+
+      # The plan file holds data source values, Infisical secrets included,
+      # so it is encrypted before it becomes an artifact.
+      - name: Package reviewed plan
+        env:
+          PLAN_ENCRYPTION_KEY: ${{ secrets.PLAN_ENCRYPTION_KEY }}
+        run: |
+          mkdir -p bundle
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in tfplan -out bundle/tfplan.enc -pass env:PLAN_ENCRYPTION_KEY
+          git rev-parse 'HEAD^{tree}' > bundle/tree
+
+      - name: Upload reviewed plan
+        uses: actions/upload-artifact@v7
+        with:
+          name: tfplan-pr-${{ github.event.pull_request.number }}
+          path: bundle/
+          retention-days: 30
+          overwrite: true
 
       - name: Comment plan on PR
         if: always()
@@ -82,9 +119,11 @@ jobs:
             const summary = (plan.match(/^(Plan: .*|No changes\..*)$/m) || ['(no summary line found)'])[0];
             const body = [
               marker,
-              `### OpenTofu plan for ${context.sha.slice(0, 7)}`,
+              `### OpenTofu plan for ${context.payload.pull_request.head.sha.slice(0, 7)}`,
               '',
               `**${summary}**`,
+              '',
+              'Merging applies exactly this plan.',
               '',
               '<details><summary>Show plan</summary>',
               '',
@@ -112,7 +151,7 @@ jobs:
           status: ${{ job.status }}
 
   apply:
-    name: Apply
+    name: Apply reviewed plan
     runs-on: self-hosted
     if: github.event_name == 'push'
     concurrency:
@@ -121,9 +160,68 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      actions: read
+      pull-requests: read
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Find the reviewed plan
+        id: reviewed
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha });
+            const pr = prs.find(p => p.merged_at && p.merge_commit_sha === sha);
+            if (!pr) {
+              core.setFailed(`${sha.slice(0, 7)} did not come from a merged PR. Refusing to apply. ` +
+                'Open a PR, or run this workflow by hand with apply=true to re-plan deliberately.');
+              return;
+            }
+
+            const name = `tfplan-pr-${pr.number}`;
+            const { data } = await github.rest.actions.listArtifactsForRepo({ owner, repo, name, per_page: 20 });
+            const artifact = data.artifacts
+              .filter(a => !a.expired)
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+            if (!artifact) {
+              core.setFailed(`No plan artifact for PR #${pr.number}. Run this workflow by hand with apply=true.`);
+              return;
+            }
+            if (artifact.workflow_run.head_sha !== pr.head.sha) {
+              core.setFailed(`PR #${pr.number}'s newest plan is for ${artifact.workflow_run.head_sha.slice(0, 7)}, ` +
+                `but ${pr.head.sha.slice(0, 7)} was merged. Its last plan did not finish; nothing reviewed to apply.`);
+              return;
+            }
+
+            core.info(`Applying the plan from PR #${pr.number}, run ${artifact.workflow_run.id}.`);
+            core.setOutput('name', name);
+            core.setOutput('run_id', String(artifact.workflow_run.id));
+
+      - name: Download reviewed plan
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ steps.reviewed.outputs.name }}
+          run-id: ${{ steps.reviewed.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: bundle
+
+      - name: Check main still matches what was planned
+        run: |
+          planned=$(cat bundle/tree)
+          actual=$(git rev-parse 'HEAD^{tree}')
+          if [ "$planned" != "$actual" ]; then
+            echo "::error::main's content differs from the tree that was planned ($planned vs $actual). Something else merged in between. Re-run the PR's plan or dispatch with apply=true."
+            exit 1
+          fi
+
+      - name: Decrypt reviewed plan
+        env:
+          PLAN_ENCRYPTION_KEY: ${{ secrets.PLAN_ENCRYPTION_KEY }}
+        run: openssl enc -d -aes-256-cbc -pbkdf2 -in bundle/tfplan.enc -out tfplan -pass env:PLAN_ENCRYPTION_KEY
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -139,14 +237,75 @@ jobs:
       - name: Init
         run: tofu init -input=false -backend-config="key=${{ env.TF_STATE_KEY }}"
 
-      - name: Plan
-        run: tofu plan -input=false -var-file="terraform.tfvars" -out=tfplan
-
       - name: Apply
-        run: tofu apply -input=false -auto-approve tfplan
+        run: tofu apply -input=false tfplan
 
       - name: Discord notification
         if: always()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: ${{ job.status }}
+
+  drift:
+    name: Drift check (or manual apply)
+    runs-on: self-hosted
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: terraform-apply
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Init
+        run: tofu init -input=false -backend-config="key=${{ env.TF_STATE_KEY }}"
+
+      # -detailed-exitcode: 0 = no changes, 1 = error, 2 = changes pending.
+      - name: Plan
+        id: plan
+        run: |
+          set +e
+          tofu plan -input=false -no-color -detailed-exitcode -var-file="terraform.tfvars" -out=tfplan > plan.txt
+          code=$?
+          set -e
+          cat plan.txt
+          if [ "$code" -eq 1 ]; then exit 1; fi
+          echo "drift=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "summary=$(grep -m1 -E '^(Plan: |No changes\.)' plan.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Apply
+        if: inputs.apply && steps.plan.outputs.drift == 'true'
+        run: tofu apply -input=false tfplan
+
+      - name: Report drift
+        if: steps.plan.outputs.drift == 'true' && !inputs.apply
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: failure
+          nodetail: true
+          title: "Terraform drift detected"
+          description: "${{ steps.plan.outputs.summary }} Proxmox no longer matches main. See ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Discord notification
+        if: failure() || inputs.apply
         uses: sarisia/actions-status-discord@v1
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}
