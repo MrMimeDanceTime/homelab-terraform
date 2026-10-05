@@ -1,0 +1,66 @@
+name: Public mirror
+
+# Publishes a scrubbed copy of main to the public resume repo.
+# The public repo is generated output: never commit to it directly.
+#
+# Stripped from every commit: terraform.tfvars, .claude/, .github/mirror/.
+# Rewritten throughout history: the strings in .github/mirror/replacements.txt.
+# filter-repo is deterministic, so unchanged history keeps the same SHAs
+# and the force-push only moves what actually changed.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: public-mirror
+  cancel-in-progress: true
+
+jobs:
+  mirror:
+    name: Mirror
+    runs-on: ubuntu-latest
+    if: github.repository == 'Mimeworks/infrastructure-terraform'
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install git-filter-repo
+        run: pip3 install --quiet git-filter-repo
+
+      - name: Scrub history
+        run: |
+          cp .github/mirror/replacements.txt "$RUNNER_TEMP/replacements.txt"
+          git filter-repo --force \
+            --refs main \
+            --invert-paths \
+            --path terraform.tfvars \
+            --path .claude/ \
+            --path .github/mirror/ \
+            --replace-text "$RUNNER_TEMP/replacements.txt"
+
+      - name: Verify nothing private survived
+        run: |
+          if git ls-tree -r --name-only main | grep -qE '^(terraform\.tfvars|\.claude/|\.github/mirror/)'; then
+            echo "::error::Private path present after filtering"; exit 1
+          fi
+          sed -n 's/==>.*//p' "$RUNNER_TEMP/replacements.txt" > "$RUNNER_TEMP/patterns.txt"
+          if git log main -p | grep -qFf "$RUNNER_TEMP/patterns.txt"; then
+            echo "::error::A scrubbed string survived filtering"; exit 1
+          fi
+
+      - name: Push to public repo
+        env:
+          MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
+        run: |
+          key="$RUNNER_TEMP/mirror_key"
+          install -m 600 /dev/null "$key"
+          printf '%s\n' "$MIRROR_DEPLOY_KEY" > "$key"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git push --force git@github.com:MrMimeDanceTime/homelab-terraform.git main:main
