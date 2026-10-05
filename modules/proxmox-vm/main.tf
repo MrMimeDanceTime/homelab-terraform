@@ -60,7 +60,7 @@ resource "proxmox_virtual_environment_vm" "vm" {
       datastore_id      = ""
       path_in_datastore = disk.value
       size              = var.passthrough_disk_size
-      backup            = true # matches today; vzdump of a 12 TB raw disk is probably unwanted
+      backup            = false # never vzdump a 12 TB media disk; Gluster replicates it
       replicate         = false
     }
   }
