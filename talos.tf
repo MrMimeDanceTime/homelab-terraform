@@ -114,22 +114,50 @@ data "talos_machine_configuration" "k8s_dev" {
   talos_version      = local.talos.config_contract
   kubernetes_version = local.talos.kubernetes_version
 
+  # The v1.14 contract generates new-style documents, so patches target those
+  # documents rather than the old machine/cluster fields. Validated locally
+  # with `talosctl validate --mode cloud` before shipping.
   config_patches = [
+    # Our installer, so OS upgrades keep the qemu-guest-agent extension.
     yamlencode({
-      machine = {
-        install = {
-          disk  = "/dev/sda"
-          image = data.talos_image_factory_urls.k8s_dev.urls.installer
+      apiVersion = "v1alpha1"
+      kind       = "UnattendedInstallConfig"
+      installer = {
+        image = data.talos_image_factory_urls.k8s_dev.urls.installer
+      }
+      provisioning = {
+        diskSelector = {
+          match = "disk.dev_path == \"/dev/sda\""
         }
+        wipe = false
       }
-      cluster = {
-        allowSchedulingOnControlPlanes = true
-      }
+    }),
+    # The generated document sets auto: stable, which conflicts with a fixed
+    # hostname, so it is replaced rather than merged.
+    yamlencode({
+      apiVersion = "v1alpha1"
+      kind       = "HostnameConfig"
+      "$patch"   = "delete"
     }),
     yamlencode({
       apiVersion = "v1alpha1"
       kind       = "HostnameConfig"
       hostname   = each.key
+    }),
+    # Every node is also a worker: replace the generated document to drop the
+    # control-plane NoSchedule taint, and the exclude-from-external-load-
+    # balancers label so LoadBalancer services can use these nodes.
+    yamlencode({
+      apiVersion = "v1alpha1"
+      kind       = "KubeNodeConfig"
+      "$patch"   = "delete"
+    }),
+    yamlencode({
+      apiVersion = "v1alpha1"
+      kind       = "KubeNodeConfig"
+      labels = {
+        "node-role.kubernetes.io/control-plane" = ""
+      }
     }),
     # Name the single virtio NIC so the VIP does not depend on how the
     # kernel names the interface.
