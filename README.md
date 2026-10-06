@@ -175,12 +175,45 @@ first boot only. Rotating the key in Infisical does not touch existing VMs.
 `reboot_after_update` is `false`: a change that needs a reboot fails the apply
 instead of power-cycling the VM.
 
+## Templates
+
+`templates.tf` downloads a pinned release from
+[homelab-images](https://github.com/MrMimeDanceTime/homelab-images) into
+`zeus:local` (content type `import`), checks its SHA-512, and imports it as a
+template on the shared `ssd` Ceph pool, so one template serves every node.
+To move to a newer image, change the tag and digest in a PR.
+
+Build template disks with `import_from`, never `file_id`. bpg imports a
+`file_id` disk over SSH to the node, and CI has no SSH key; `import_from` goes
+through the PVE API. It needs the source on storage with `import` content,
+which `local` has.
+
+## Proxmox permissions
+
+The token is `terraform@pve!tofu` with privilege separation off, so it has
+exactly the user's permissions:
+
+| Path | Role | Privileges |
+|---|---|---|
+| `/` | `TerraformProv` | The provider's PVE 9 list, plus `VM.GuestAgent.Audit` (agent IP reads) and `Mapping.Use` (the `igpu` PCI mapping) |
+| `/storage/local` | `TerraformStorage` | `Datastore.Allocate`, `Datastore.AllocateSpace`, `Datastore.AllocateTemplate`, `Datastore.Audit` |
+
+`TerraformStorage` exists because replacing a downloaded image deletes a file,
+which needs `Datastore.Allocate`. That privilege also allows editing the
+storage definition, so it is granted on `local` only.
+
+**An ACL on a deeper path replaces what the user inherits from above; it does
+not add to it.** That is why `TerraformStorage` repeats the datastore
+privileges `TerraformProv` already grants on `/`: with only
+`Datastore.Allocate` there, downloads to `local` lost
+`Datastore.AllocateTemplate`. Any future per-path role must carry everything
+Terraform does at that path.
+
 ## Known compromises
 
-- Authentication is the `terraform@pve!tofu` API token, bound to a
-  `TerraformProv` role. PVE only lets `root@pam` attach a raw
-  `/dev/disk/by-id` device, so creating a storage VM or changing its
-  passthrough disk is a manual root operation.
+- PVE only lets `root@pam` attach or change a raw `/dev/disk/by-id` device,
+  so creating a storage VM or changing its passthrough disk is a manual root
+  operation (`qm set`), followed by a PR that makes the config match.
 - TLS verification is disabled because the cluster uses the self-signed
   Proxmox certificate. It is set explicitly in `terraform.tfvars`.
 - Without branch protection (a private repo on GitHub Free), the guarantee
