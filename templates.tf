@@ -22,9 +22,9 @@ locals {
 resource "proxmox_download_file" "debian_13" {
   node_name          = local.template_node
   datastore_id       = "local"
-  content_type       = "iso"
+  content_type       = "import"
   url                = "https://github.com/MrMimeDanceTime/homelab-images/releases/download/${local.debian_13_image.tag}/${local.debian_13_image.tag}.qcow2"
-  file_name          = "${local.debian_13_image.tag}.img" # iso storage only accepts .img/.iso
+  file_name          = "${local.debian_13_image.tag}.qcow2"
   checksum           = local.debian_13_image.sha512
   checksum_algorithm = "sha512"
 }
@@ -59,12 +59,14 @@ resource "proxmox_virtual_environment_vm" "debian_13_template" {
   disk {
     interface    = "scsi0"
     datastore_id = local.template_datastore
-    file_id      = proxmox_download_file.debian_13.id
-    size         = 3 # the image's virtual size; clones grow it
-    cache        = "none"
-    discard      = "on"
-    ssd          = true
-    iothread     = true
+    # import_from goes through the PVE API. file_id would import over SSH to
+    # the node, which CI has no key for. Needs `import` content on `local`.
+    import_from = proxmox_download_file.debian_13.id
+    size        = 3 # the image's virtual size; clones grow it
+    cache       = "none"
+    discard     = "on"
+    ssd         = true
+    iothread    = true
   }
 
   network_device {
