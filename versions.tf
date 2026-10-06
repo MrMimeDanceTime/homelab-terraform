@@ -18,6 +18,10 @@ terraform {
       source  = "siderolabs/talos"
       version = "~> 0.12.0"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 3.3.0"
+    }
     infisical = {
       source  = "infisical/infisical"
       version = "~> 0.19"

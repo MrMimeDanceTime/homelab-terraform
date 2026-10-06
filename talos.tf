@@ -16,14 +16,21 @@
 # resource is replaced in one apply. Nothing on k8s-dev is meant to survive.
 # (replace_triggered_by only fires when a trigger changes, not when it is
 # first created, so the lever had to land before its first use.)
+#
+# CNI is Cilium, bootstrapped as a Talos inline manifest so it exists the
+# moment the cluster does. Flannel and kube-proxy are off; Cilium replaces
+# kube-proxy through KubePrism (localhost:7445).
 
 locals {
   talos = {
-    cluster_name       = "k8s-dev"
-    generation         = 1
-    version            = "v1.14.2"
-    config_contract    = "v1.14"
-    kubernetes_version = "v1.37.1"
+    cluster_name    = "k8s-dev"
+    generation      = 2 # 1: Flannel; 2: Cilium
+    version         = "v1.14.2"
+    config_contract = "v1.14"
+    # Newest version both Talos v1.14 (1.32 to 1.37) and Cilium 1.20
+    # (1.33 to 1.36) support.
+    kubernetes_version = "v1.36.5"
+    cilium_version     = "1.20.2"
 
     vip         = "192.168.30.50" # Kubernetes API, held by one control plane at a time
     prefix      = 24
@@ -111,6 +118,38 @@ module "talos_vms" {
 # Talos configuration and bootstrap
 # ----------------------------------------------------------------------------
 
+# Cilium, rendered locally and handed to Talos as an inline manifest. Values
+# follow Talos's Cilium guide: no kube-proxy, API via KubePrism, Talos's
+# cgroup mount, and the capability set Talos allows.
+data "helm_template" "cilium" {
+  name         = "cilium"
+  namespace    = "kube-system"
+  repository   = "https://helm.cilium.io"
+  chart        = "cilium"
+  version      = local.talos.cilium_version
+  kube_version = trimprefix(local.talos.kubernetes_version, "v")
+
+  values = [yamlencode({
+    ipam                 = { mode = "kubernetes" }
+    kubeProxyReplacement = true
+    k8sServiceHost       = "localhost"
+    k8sServicePort       = 7445
+    cgroup = {
+      autoMount = { enabled = false }
+      hostRoot  = "/sys/fs/cgroup"
+    }
+    securityContext = {
+      capabilities = {
+        ciliumAgent      = ["CHOWN", "KILL", "NET_ADMIN", "NET_RAW", "IPC_LOCK", "SYS_ADMIN", "SYS_RESOURCE", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+        cleanCiliumState = ["NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE"]
+      }
+    }
+    # LoadBalancer IPs announced on the LAN, replacing MetalLB.
+    l2announcements    = { enabled = true }
+    k8sClientRateLimit = { qps = 20, burst = 40 }
+  })]
+}
+
 resource "talos_machine_secrets" "k8s_dev" {
   talos_version = local.talos.config_contract
 
@@ -189,6 +228,23 @@ data "talos_machine_configuration" "k8s_dev" {
       kind       = "Layer2VIPConfig"
       name       = local.talos.vip
       link       = "net0"
+    }),
+    # Cilium instead of Flannel and kube-proxy.
+    yamlencode({
+      apiVersion = "v1alpha1"
+      kind       = "KubeFlannelCNIConfig"
+      "$patch"   = "delete"
+    }),
+    yamlencode({
+      apiVersion = "v1alpha1"
+      kind       = "KubeProxyConfig"
+      enabled    = false
+    }),
+    yamlencode({
+      apiVersion = "v1alpha1"
+      kind       = "KubeInlineManifestConfig"
+      name       = "cilium"
+      manifest   = data.helm_template.cilium.manifest
     }),
   ]
 }

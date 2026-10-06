@@ -27,3 +27,6 @@ data "infisical_secrets" "visible" {
   folder_path  = "/VISIBLE"
   workspace_id = var.infisical_workspace_id
 }
+
+# Only renders charts (helm_template); it never talks to a cluster.
+provider "helm" {}
