@@ -31,6 +31,10 @@ locals {
     # (1.33 to 1.36) support.
     kubernetes_version = "v1.36.5"
     cilium_version     = "1.20.2"
+    # Must match clusters/k8s-dev/argocd.yaml in homelab-gitops, where
+    # Argo CD manages its own upgrades after bootstrap.
+    argocd_chart_version = "10.9.6"
+    gitops_repo          = "https://github.com/MrMimeDanceTime/homelab-gitops.git"
 
     vip         = "192.168.30.50" # Kubernetes API, held by one control plane at a time
     prefix      = 24
@@ -150,6 +154,60 @@ data "helm_template" "cilium" {
   })]
 }
 
+# Argo CD and the app-of-apps root, applied once by Talos at bootstrap. Talos
+# never re-applies an object it has already applied, so after the first sync
+# Argo CD owns everything, itself included (homelab-gitops). Release name and
+# values must match homelab-gitops clusters/k8s-dev/argocd.yaml.
+data "helm_template" "argocd" {
+  name         = "argocd"
+  namespace    = "argocd"
+  repository   = "https://argoproj.github.io/argo-helm"
+  chart        = "argo-cd"
+  version      = local.talos.argocd_chart_version
+  kube_version = trimprefix(local.talos.kubernetes_version, "v")
+  include_crds = true
+
+  values = [yamlencode({
+    dex     = { enabled = false }
+    configs = { params = { "server.insecure" = true } }
+  })]
+}
+
+locals {
+  argocd_bootstrap = join("\n---\n", [
+    yamlencode({
+      apiVersion = "v1"
+      kind       = "Namespace"
+      metadata   = { name = "argocd" }
+    }),
+    data.helm_template.argocd.manifest,
+    yamlencode({
+      apiVersion = "argoproj.io/v1alpha1"
+      kind       = "Application"
+      metadata = {
+        name       = "root"
+        namespace  = "argocd"
+        finalizers = ["resources-finalizer.argocd.argoproj.io"]
+      }
+      spec = {
+        project = "default"
+        source = {
+          repoURL        = local.talos.gitops_repo
+          targetRevision = "main"
+          path           = "clusters/${local.talos.cluster_name}"
+        }
+        destination = {
+          server    = "https://kubernetes.default.svc"
+          namespace = "argocd"
+        }
+        syncPolicy = {
+          automated = { prune = true, selfHeal = true }
+        }
+      }
+    }),
+  ])
+}
+
 resource "talos_machine_secrets" "k8s_dev" {
   talos_version = local.talos.config_contract
 
@@ -245,6 +303,12 @@ data "talos_machine_configuration" "k8s_dev" {
       kind       = "KubeInlineManifestConfig"
       name       = "cilium"
       manifest   = data.helm_template.cilium.manifest
+    }),
+    yamlencode({
+      apiVersion = "v1alpha1"
+      kind       = "KubeInlineManifestConfig"
+      name       = "argocd-bootstrap"
+      manifest   = local.argocd_bootstrap
     }),
   ]
 }
