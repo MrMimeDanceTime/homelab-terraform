@@ -36,7 +36,7 @@ vms = {
     memory        = 4096
     balloon       = 2048
     disk_size     = 32
-    template_name = "alma-template-zeus"
+    template_name = "debian-13"
   }
   "minecraft-server" = {
     home_name     = "zeus"
@@ -45,7 +45,7 @@ vms = {
     memory        = 16384
     balloon       = 2048
     disk_size     = 32
-    template_name = "alma-template-zeus"
+    template_name = "debian-13"
   }
 }
 
@@ -60,7 +60,7 @@ jellyfin_vms = {
     memory        = 12288
     balloon       = 2048
     disk_size     = 512
-    template_name = "alma-template-apollo"
+    template_name = "debian-13"
   }
 }
 
@@ -75,7 +75,7 @@ storage_vms = {
     memory        = 4096
     balloon       = 2048
     disk_size     = 32
-    template_name = "alma-template-hades"
+    template_name = "debian-13"
     drive_id      = "/dev/disk/by-id/ata-ST12000VN0008-2PH103_SERIAL0001"
   }
   "gluster-poseidon" = {
@@ -85,7 +85,7 @@ storage_vms = {
     memory        = 4096
     balloon       = 2048
     disk_size     = 32
-    template_name = "alma-template-poseidon"
+    template_name = "debian-13"
     drive_id      = "/dev/disk/by-id/ata-ST12000VN0008-2PH103_SERIAL0002"
   }
 }
@@ -101,6 +101,6 @@ misc_vms = {
     memory        = 24576
     balloon       = 2048
     disk_size     = 128
-    template_name = "alma-template-zeus"
+    template_name = "debian-13"
   }
 }
