@@ -14,6 +14,10 @@ terraform {
       source  = "bpg/proxmox"
       version = "~> 0.115.0"
     }
+    talos = {
+      source  = "siderolabs/talos"
+      version = "~> 0.12.0"
+    }
     infisical = {
       source  = "infisical/infisical"
       version = "~> 0.19"
