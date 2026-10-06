@@ -11,6 +11,7 @@ infisical_workspace_id = "your-workspace-id-here"
 
 # Infisical environment (prod, dev, staging, etc.)
 infisical_env = "prod"
+infisical_k8s_workspace_id = "your-k8s-project-id-here"
 
 # NOTE: Secrets are fetched from:
 #   - /HIDDEN folder: pm_api_token_secret, ci_password

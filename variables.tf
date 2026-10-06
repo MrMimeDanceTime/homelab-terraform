@@ -39,6 +39,11 @@ variable "infisical_workspace_id" {
   type        = string
 }
 
+variable "infisical_k8s_workspace_id" {
+  description = "Infisical project that holds cluster credentials. CI's identity is Member here and Viewer on the main project."
+  type        = string
+}
+
 variable "infisical_env" {
   description = "Infisical environment (e.g., prod, dev)"
   type        = string

@@ -217,7 +217,26 @@ resource "talos_cluster_kubeconfig" "k8s_dev" {
   node                 = local.talos_nodes["talos-dev-1"].ip
 }
 
-# Read with: tofu output -raw k8s_dev_talosconfig / k8s_dev_kubeconfig
+# Day-to-day access goes through Infisical (project k8s-trnk, env prod):
+#   infisical export --projectId <k8s project id> --env prod
+# The outputs below are the fallback, read with tofu output -raw.
+
+resource "infisical_secret" "k8s_dev_kubeconfig" {
+  workspace_id = var.infisical_k8s_workspace_id
+  env_slug     = var.infisical_env
+  folder_path  = "/"
+  name         = "K8S_DEV_KUBECONFIG"
+  value        = talos_cluster_kubeconfig.k8s_dev.kubeconfig_raw
+}
+
+resource "infisical_secret" "k8s_dev_talosconfig" {
+  workspace_id = var.infisical_k8s_workspace_id
+  env_slug     = var.infisical_env
+  folder_path  = "/"
+  name         = "K8S_DEV_TALOSCONFIG"
+  value        = data.talos_client_configuration.k8s_dev.talos_config
+}
+
 output "k8s_dev_talosconfig" {
   description = "talosctl config for k8s-dev"
   value       = data.talos_client_configuration.k8s_dev.talos_config
