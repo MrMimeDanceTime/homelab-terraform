@@ -59,6 +59,9 @@ jobs:
         uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
+          # The wrapper swallows -detailed-exitcode, which blinded the drift
+          # check. Nothing here uses its outputs.
+          tofu_wrapper: false
 
       - name: Init
         run: tofu init -input=false -backend-config="key=${{ env.TF_STATE_KEY }}"
@@ -238,6 +241,9 @@ jobs:
         uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
+          # The wrapper swallows -detailed-exitcode, which blinded the drift
+          # check. Nothing here uses its outputs.
+          tofu_wrapper: false
 
       - name: Init
         run: tofu init -input=false -backend-config="key=${{ env.TF_STATE_KEY }}"
@@ -278,6 +284,9 @@ jobs:
         uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
+          # The wrapper swallows -detailed-exitcode, which blinded the drift
+          # check. Nothing here uses its outputs.
+          tofu_wrapper: false
 
       - name: Init
         run: tofu init -input=false -backend-config="key=${{ env.TF_STATE_KEY }}"
