@@ -11,10 +11,16 @@
 #     upgrade-k8s with health gating)
 # Leave config_contract alone on upgrades; it pins the machine config schema
 # to the version the cluster was created with.
+#
+# Rebuild from scratch: bump local.talos.generation. Every VM and Talos
+# resource is replaced in one apply. Nothing on k8s-dev is meant to survive.
+# (replace_triggered_by only fires when a trigger changes, not when it is
+# first created, so the lever had to land before its first use.)
 
 locals {
   talos = {
     cluster_name       = "k8s-dev"
+    generation         = 1
     version            = "v1.14.2"
     config_contract    = "v1.14"
     kubernetes_version = "v1.37.1"
@@ -37,6 +43,10 @@ locals {
   }
 
   talos_node_ips = [for n in local.talos_nodes : n.ip]
+}
+
+resource "terraform_data" "k8s_dev_generation" {
+  input = local.talos.generation
 }
 
 # ----------------------------------------------------------------------------
@@ -90,6 +100,7 @@ module "talos_vms" {
   disk_storage = local.talos.disk_storage
   image_id     = proxmox_download_file.talos[each.value.host].id
 
+  generation     = local.talos.generation
   network_bridge = local.default_network_bridge
   ipv4_cidr      = "${each.value.ip}/${local.talos.prefix}"
   gateway        = local.talos.gateway
@@ -102,6 +113,10 @@ module "talos_vms" {
 
 resource "talos_machine_secrets" "k8s_dev" {
   talos_version = local.talos.config_contract
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.k8s_dev_generation]
+  }
 }
 
 data "talos_machine_configuration" "k8s_dev" {
@@ -192,6 +207,10 @@ resource "talos_machine" "k8s_dev" {
   # Dev cluster: no drain on OS upgrades for now. Revisit before anything
   # stateful lands here; draining needs the kubeconfig wired in.
   drain_on_upgrade = false
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.k8s_dev_generation]
+  }
 }
 
 resource "talos_cluster" "k8s_dev" {
@@ -201,6 +220,10 @@ resource "talos_cluster" "k8s_dev" {
   control_plane_nodes  = local.talos_node_ips
   client_configuration = talos_machine_secrets.k8s_dev.client_configuration
   kubernetes_version   = local.talos.kubernetes_version
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.k8s_dev_generation]
+  }
 }
 
 data "talos_client_configuration" "k8s_dev" {
@@ -212,6 +235,10 @@ data "talos_client_configuration" "k8s_dev" {
 
 resource "talos_cluster_kubeconfig" "k8s_dev" {
   depends_on = [talos_cluster.k8s_dev]
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.k8s_dev_generation]
+  }
 
   client_configuration = talos_machine_secrets.k8s_dev.client_configuration
   node                 = local.talos_nodes["talos-dev-1"].ip

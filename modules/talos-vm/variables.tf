@@ -62,3 +62,8 @@ variable "dns_servers" {
   description = "DNS servers"
   type        = list(string)
 }
+
+variable "generation" {
+  description = "Cluster generation. Changing it replaces the VM (see talos.tf)."
+  type        = number
+}

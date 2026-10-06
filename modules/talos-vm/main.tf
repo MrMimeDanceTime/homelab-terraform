@@ -2,6 +2,10 @@
 # not cloud-init, so this module only builds the VM and hands Talos its static
 # address through the Proxmox cloud-init drive, which the nocloud platform
 # reads. Everything else is talos.tf's job.
+resource "terraform_data" "generation" {
+  input = var.generation
+}
+
 resource "proxmox_virtual_environment_vm" "vm" {
   name        = var.name
   node_name   = var.target_node
@@ -71,6 +75,7 @@ resource "proxmox_virtual_environment_vm" "vm" {
   }
 
   lifecycle {
+    replace_triggered_by = [terraform_data.generation]
     ignore_changes = [
       # The disk image only matters at creation. Talos upgrades in place
       # through talos_machine.image, so a newer image must not rebuild nodes.
