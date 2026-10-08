@@ -151,6 +151,11 @@ data "helm_template" "cilium" {
     # LoadBalancer IPs announced on the LAN, replacing MetalLB.
     l2announcements    = { enabled = true }
     k8sClientRateLimit = { qps = 20, burst = 40 }
+    # The default method (helm) mints a new Hubble CA on every render, so the
+    # machine config never matched state and every plan drifted. A CronJob
+    # generates the certs in-cluster instead, and rotates them, which matters
+    # because Talos never re-applies an inline manifest.
+    hubble = { tls = { auto = { method = "cronJob" } } }
   })]
 }
 
