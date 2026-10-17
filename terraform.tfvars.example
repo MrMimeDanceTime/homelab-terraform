@@ -94,7 +94,7 @@ storage_vms = {
 # Miscellaneous VMs
 # ============================================================================
 misc_vms = {
-  "gamewings" = {
+  "games" = {
     home_name     = "zeus"
     vm_id         = 110
     cpu_cores     = 16
