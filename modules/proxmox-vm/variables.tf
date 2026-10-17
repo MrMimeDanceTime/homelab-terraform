@@ -105,6 +105,13 @@ variable "gpu_passthrough" {
   default = null
 }
 
+# Optional: Serial Console
+variable "serial_console" {
+  description = "Attach a serial socket so `qm terminal` shows the boot (Debian cloud kernels log to ttyS0)"
+  type        = bool
+  default     = false
+}
+
 # Optional: Machine Type
 variable "machine_type" {
   description = "QEMU machine type (e.g., 'q35' for PCIe support)"

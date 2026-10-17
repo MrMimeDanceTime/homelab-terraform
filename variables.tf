@@ -100,13 +100,14 @@ variable "storage_vms" {
 variable "misc_vms" {
   description = "Map of miscellaneous VM configurations"
   type = map(object({
-    home_name     = string
-    vm_id         = number
-    cpu_cores     = number
-    memory        = number
-    balloon       = number
-    disk_size     = number
-    template_name = string
+    home_name      = string
+    vm_id          = number
+    cpu_cores      = number
+    memory         = number
+    balloon        = number
+    disk_size      = number
+    template_name  = string
+    serial_console = optional(bool, false)
   }))
   default = {}
 }

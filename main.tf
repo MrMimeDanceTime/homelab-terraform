@@ -121,6 +121,7 @@ module "misc_vms" {
   template_vm_id = local.templates[each.value.template_name].vm_id
   template_node  = local.templates[each.value.template_name].node_name
   machine_type   = "q35" # Q35 machine type
+  serial_console = each.value.serial_console
 
   # Resources
   cpu_cores = each.value.cpu_cores

@@ -70,6 +70,15 @@ resource "proxmox_virtual_environment_vm" "vm" {
     model  = "virtio"
   }
 
+  # Opt-in per VM: adding a serial port to a running VM needs a cold boot,
+  # which reboot_after_update = false turns into a failed apply.
+  dynamic "serial_device" {
+    for_each = var.serial_console ? [1] : []
+    content {
+      device = "socket"
+    }
+  }
+
   dynamic "hostpci" {
     for_each = var.gpu_passthrough != null ? [var.gpu_passthrough] : []
     content {
