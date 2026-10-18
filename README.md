@@ -1,9 +1,11 @@
 # Proxmox Infrastructure as Code
 
 OpenTofu configuration for the VMs running on a small Proxmox VE cluster (nodes
-`zeus`, `apollo`, `hades`, `poseidon`). Every VM is a cloud-init clone of a
-per-node AlmaLinux template, described by a few lines in `terraform.tfvars` and
-built by one reusable module.
+`zeus`, `apollo`, `hades`, `poseidon`). Each general VM is a cloud-init clone of
+one Debian 13 template on the shared Ceph pool, described by a few lines in
+`terraform.tfvars` and built by one reusable module. The older VMs still run
+AlmaLinux and move to Debian when they are rebuilt. The repo also builds the
+k8s-dev Talos cluster (see [k8s-dev](#k8s-dev-talos)).
 
 Changes are deployed by GitHub Actions on a self-hosted runner inside the
 network: a pull request produces a plan as a PR comment, and merging to `main`
@@ -14,15 +16,20 @@ applies it.
 ```
 .
 ├── main.tf                     # Four module calls, one per VM category
+├── templates.tf                # The debian-13 template, from a pinned homelab-images release
+├── talos.tf                    # The k8s-dev Talos cluster: VMs, config, bootstrap, upgrades
 ├── variables.tf                # Input declarations (no environment-specific defaults)
-├── terraform.tfvars            # The actual VM inventory (committed; contains no secrets)
+├── terraform.tfvars            # The actual VM inventory (committed; stripped from the mirror)
 ├── terraform.tfvars.example    # Template for a fresh environment
-├── locals.tf                   # Shared values: storage pools, bridges, GPU mapping
+├── locals.tf                   # Shared values: storage pools, bridges, GPU mapping, templates
 ├── providers.tf                # Proxmox + Infisical providers, secret lookups
 ├── versions.tf                 # OpenTofu + provider pins, S3 backend
 ├── outputs.tf                  # VM IDs and addresses (sensitive) plus counts
+├── renovate.json
 ├── modules/proxmox-vm/         # The VM module
-└── .github/workflows/terraform.yml
+├── modules/talos-vm/           # The Talos node VM module
+├── .github/mirror/             # Scrub list for the public mirror (never mirrored)
+└── .github/workflows/          # terraform.yml (plan, apply, drift), mirror.yml
 ```
 
 ### VM categories
@@ -131,7 +138,9 @@ plan is reviewed.
 needs `home_name` (Proxmox node), `vm_id`, `cpu_cores`, `memory`, `balloon`
 (`0` disables ballooning), `disk_size` in GB, and `template_name`. Storage VMs
 also need `drive_id`, the `/dev/disk/by-id/...` path of the disk to pass
-through.
+through. `misc_vms` entries can set `serial_console = true` to attach a serial
+socket, so `qm terminal <vmid>` shows the boot (Debian cloud kernels log to
+`ttyS0`).
 
 **Resize a VM.** Change the numbers. CPU, memory, and disk growth apply in
 place; disk shrink is not supported by Proxmox.
@@ -165,6 +174,7 @@ VM ID and node through the `proxmox_virtual_environment_vms` data source.
 | `machine_type`      | no       | `q35` is required for PCIe passthrough          |
 | `passthrough_disk`, `passthrough_disk_size` | no | Adds `scsi1` as a raw passthrough of this device. Size must match what PVE reports |
 | `gpu_passthrough`   | no       | Object with `mapping_id`, `rombar`, `pcie`, `primary_gpu` |
+| `serial_console`    | no       | Adds a `socket` serial device. Default `false`, because adding one to a running VM needs a cold boot |
 
 Outputs: `id`, `vmid`, `name`, `default_ipv4_address`, `ssh_host`.
 
@@ -187,6 +197,26 @@ Build template disks with `import_from`, never `file_id`. bpg imports a
 `file_id` disk over SSH to the node, and CI has no SSH key; `import_from` goes
 through the PVE API. It needs the source on storage with `import` content,
 which `local` has.
+
+## k8s-dev (Talos)
+
+`talos.tf` builds the k8s-dev cluster: three Talos nodes, one per host
+(`hades`, `poseidon`, `zeus`), each both control plane and worker, behind the
+API VIP `192.168.30.50`. Everything is Terraform: the Talos image, the VMs
+(`modules/talos-vm`), the machine config, bootstrap, and Cilium as an inline
+manifest. The cluster's kubeconfig and talosconfig are written back to
+Infisical on every apply. The cluster is disposable by design.
+
+| Change | How |
+|---|---|
+| Upgrade Talos | Bump `local.talos.version` |
+| Upgrade Kubernetes | Bump `local.talos.kubernetes_version`, never past what Cilium supports |
+| Rebuild from scratch | Bump `local.talos.generation`. Every node and Talos resource is replaced in one apply |
+
+Leave `config_contract` alone on upgrades; it pins the machine config schema to
+the version the cluster was created with. Workloads are deployed by Argo CD from
+[homelab-gitops](https://github.com/MrMimeDanceTime/homelab-gitops), not from
+this repo.
 
 ## Proxmox permissions
 

@@ -17,6 +17,11 @@ category-specific inputs. The earlier layout had four near-identical
 `proxmox_vm_qemu` resources of about 85 lines each; a fix in one had to be
 copied to the other three.
 
+The Talos nodes are the exception and use their own `modules/talos-vm`: they
+boot a Talos image instead of cloning the cloud-init template, and their
+lifecycle (generation-driven replacement, machine config) has nothing in common
+with the pets.
+
 The maps stay separate rather than being one map with a `type` field because
 their object types differ (`storage_vms` needs `drive_id`) and because the
 category is what determines the passthrough and bridge inputs. Collapsing them
@@ -48,9 +53,12 @@ second PR to `main`. It existed because the GitLab free tier at the time had no
 review gates. On GitHub the PR plan comment does that job directly, and one
 long-lived branch is one fewer thing to drift.
 
-The apply job re-plans rather than consuming the PR's plan artifact. Handing a
-binary plan between two workflow runs is possible but adds artifact plumbing
-for a repository where the window between merge and apply is seconds.
+The apply job applies the exact plan file reviewed on the PR, not a fresh one.
+The plan is encrypted, uploaded as an artifact with the hash of the tree it was
+planned against, and refused if the merged tree differs or a newer head was
+never planned. That closed the gap Atlantis was once planned for: no apply can
+run that a person did not see. Handing a binary plan between runs costs some
+artifact plumbing, which is cheaper than a second tool.
 
 ## State
 
