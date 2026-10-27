@@ -38,7 +38,7 @@ applies it.
 |----------------|-----------------------------------------------------|
 | `vms`          | General purpose                                     |
 | `jellyfin_vms` | q35 machine type, Intel iGPU passthrough            |
-| `storage_vms`  | GlusterFS nodes, whole-disk passthrough, storage bridge |
+| `storage_vms`  | NFS storage nodes, whole-disk passthrough, storage bridge |
 | `misc_vms`     | q35 machine type, no passthrough                    |
 
 All four use the same module. The differences are a handful of inputs set in
@@ -137,8 +137,9 @@ plan is reviewed.
 **Add a VM.** Add an entry to the right map in `terraform.tfvars`. Every VM
 needs `home_name` (Proxmox node), `vm_id`, `cpu_cores`, `memory`, `balloon`
 (`0` disables ballooning), `disk_size` in GB, and `template_name`. Storage VMs
-also need `drive_id`, the `/dev/disk/by-id/...` path of the disk to pass
-through. `misc_vms` entries can set `serial_console = true` to attach a serial
+also take `drive_id`, the `/dev/disk/by-id/...` path of the disk to pass
+through. Create a storage VM without it, attach the disk as root, then add
+`drive_id` in a follow-up PR whose plan is a no-op. `misc_vms` entries can set `serial_console = true` to attach a serial
 socket, so `qm terminal <vmid>` shows the boot (Debian cloud kernels log to
 `ttyS0`).
 

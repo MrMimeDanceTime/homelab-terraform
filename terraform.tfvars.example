@@ -65,10 +65,10 @@ jellyfin_vms = {
 }
 
 # ============================================================================
-# Storage VMs (GlusterFS with disk passthrough)
+# Storage VMs (NFS exports with disk passthrough)
 # ============================================================================
 storage_vms = {
-  "gluster-hades" = {
+  "nfs-hades" = {
     home_name     = "hades"
     vm_id         = 301
     cpu_cores     = 2
@@ -78,7 +78,7 @@ storage_vms = {
     template_name = "debian-13"
     drive_id      = "/dev/disk/by-id/ata-ST12000VN0008-2PH103_SERIAL0001"
   }
-  "gluster-poseidon" = {
+  "nfs-poseidon" = {
     home_name     = "poseidon"
     vm_id         = 302
     cpu_cores     = 2

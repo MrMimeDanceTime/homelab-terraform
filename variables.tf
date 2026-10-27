@@ -83,7 +83,7 @@ variable "jellyfin_vms" {
 }
 
 variable "storage_vms" {
-  description = "Map of GlusterFS storage VM configurations (with disk passthrough)"
+  description = "Map of NFS storage VM configurations (with disk passthrough)"
   type = map(object({
     home_name     = string
     vm_id         = number
@@ -92,7 +92,7 @@ variable "storage_vms" {
     balloon       = number
     disk_size     = number
     template_name = string
-    drive_id      = string
+    drive_id      = optional(string) # null until root attaches the disk
   }))
   default = {}
 }

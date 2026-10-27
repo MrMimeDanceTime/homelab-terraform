@@ -33,7 +33,7 @@ module "vms" {
 }
 
 # ============================================================================
-# Storage VMs (GlusterFS with disk passthrough)
+# Storage VMs (NFS exports with disk passthrough)
 # ============================================================================
 
 module "storage_vms" {
@@ -57,7 +57,7 @@ module "storage_vms" {
   disk_storage          = local.default_disk_storage
   cloudinit_storage     = local.default_cloudinit_storage
   passthrough_disk      = each.value.drive_id # Additional disk passthrough
-  passthrough_disk_size = local.gluster_disk_size_gb
+  passthrough_disk_size = local.media_disk_size_gb
 
   # Network (uses storage network bridge)
   network_bridge = local.storage_network_bridge

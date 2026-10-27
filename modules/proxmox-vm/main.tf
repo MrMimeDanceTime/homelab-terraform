@@ -51,7 +51,7 @@ resource "proxmox_virtual_environment_vm" "vm" {
     replicate    = true
   }
 
-  # Raw host disk for the Gluster VMs. PVE only lets root@pam attach these,
+  # Raw host disk for the storage VMs. PVE only lets root@pam attach these,
   # so creating a storage VM or changing this disk is a manual root operation.
   dynamic "disk" {
     for_each = var.passthrough_disk != null ? [var.passthrough_disk] : []
@@ -60,7 +60,7 @@ resource "proxmox_virtual_environment_vm" "vm" {
       datastore_id      = ""
       path_in_datastore = disk.value
       size              = var.passthrough_disk_size
-      backup            = false # never vzdump a 12 TB media disk; Gluster replicates it
+      backup            = false # never vzdump a 12 TB disk of replaceable media
       replicate         = false
     }
   }

@@ -20,7 +20,7 @@ locals {
   }
 
   # ST12000VN0008 passthrough disks, as PVE reports their size.
-  gluster_disk_size_gb = 11176
+  media_disk_size_gb = 11176
 
   # Template name -> {vm_id, node_name}, so tfvars can keep naming templates.
   templates = {
